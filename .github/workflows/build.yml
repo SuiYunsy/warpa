@@ -1,0 +1,64 @@
+name: Build and publish GHCR image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "20 3 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare image metadata
+        id: meta
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          timestamp="$(date -u +'%Y%m%d-%H%M')"
+          short_sha="${GITHUB_SHA::7}"
+
+          {
+            echo "image=${image}"
+            echo "timestamp=${timestamp}"
+            echo "short_sha=${short_sha}"
+            echo "tags<<EOF"
+            echo "${image}:latest"
+            echo "${image}:sha-${short_sha}"
+            echo "${image}:${timestamp}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            WARP_IMAGE=ghcr.io/mon-ius/docker-warp-socks:v5
+            CPA_IMAGE=eceasy/cli-proxy-api:latest
+          tags: ${{ steps.meta.outputs.tags }}
