@@ -73,16 +73,22 @@ CPA_PID="$!"
 
 while :; do
     if ! kill -0 "$WARP_PID" 2>/dev/null; then
-        STATUS=0
-        wait "$WARP_PID" 2>/dev/null || STATUS="$?"
+        if wait "$WARP_PID" 2>/dev/null; then
+            STATUS=0
+        else
+            STATUS=$?
+        fi
         log "WARP process exited with status ${STATUS}; stopping CLIProxyAPI..."
         stop_children
         exit "$STATUS"
     fi
 
     if ! kill -0 "$CPA_PID" 2>/dev/null; then
-        STATUS=0
-        wait "$CPA_PID" 2>/dev/null || STATUS="$?"
+        if wait "$CPA_PID" 2>/dev/null; then
+            STATUS=0
+        else
+            STATUS=$?
+        fi
         log "CLIProxyAPI process exited with status ${STATUS}; stopping WARP..."
         stop_children
         exit "$STATUS"
