@@ -29,12 +29,14 @@ The image is designed for Azure App Service storage and uses `/home` for persist
 If `/home/config.yaml` does not exist at startup, the entrypoint copies `/CLIProxyAPI/config.example.yaml` and sets these values:
 
 ```yaml
-host: ""
+host: "0.0.0.0"
 port: 8317
 auth-dir: "/home/auths"
 logging-to-file: true
 proxy-url: "http://127.0.0.1:9091"
 ```
+
+`host: "0.0.0.0"` binds CLIProxyAPI to all container interfaces; only publish `8317` as documented below.
 
 If `/home/config.yaml` already exists, it is used as-is and is not overwritten.
 

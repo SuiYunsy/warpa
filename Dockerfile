@@ -14,7 +14,7 @@ COPY entrypoint-cpa-warp.sh /entrypoint-cpa-warp.sh
 RUN chmod +x /entrypoint-cpa-warp.sh /CLIProxyAPI/CLIProxyAPI \
     && mkdir -p /CLIProxyAPI /home/auths /home/logs
 
-# entrypoint-cpa-warp.sh runs from /CLIProxyAPI; entrypoint-warpa.sh sets its own WARPA_HOME.
+# entrypoint-cpa-warp.sh runs from /CLIProxyAPI; alternate entrypoints can override the working directory.
 WORKDIR /CLIProxyAPI
 
 EXPOSE 8317
