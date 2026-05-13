@@ -12,9 +12,9 @@ COPY --from=cpa /CLIProxyAPI/config.example.yaml /CLIProxyAPI/config.example.yam
 COPY entrypoint-warpa.sh /entrypoint-warpa.sh
 
 RUN chmod +x /entrypoint-warpa.sh /CLIProxyAPI/CLIProxyAPI \
-    && mkdir -p /CLIProxyAPI /home/warpa/auths /home/warpa/logs
+    && mkdir -p /CLIProxyAPI /home/warpa/auths /home/warpa/logs /home/warpa/static
 
-WORKDIR /CLIProxyAPI
+WORKDIR /home/warpa
 
 EXPOSE 8317
 

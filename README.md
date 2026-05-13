@@ -18,12 +18,15 @@ ghcr.io/suiyunsy/warpa:latest
 
 ## 持久化路径
 
-镜像按 Azure App Service 的持久化目录 `/home` 设计，warpa 自身数据统一放在 `/home/warpa`：
+镜像按 Azure App Service 的持久化目录 `/home` 设计，warpa 自身数据统一放在 `/home/warpa`。`/CLIProxyAPI` 是镜像内置的 CPA 程序目录，只用于存放可执行文件和示例配置，不应作为持久化目录使用。
+
+warpa 只使用以下持久化路径：
 
 ```text
 /home/warpa/config.yaml  # CPA 配置文件
 /home/warpa/auths        # CPA auth 文件目录
 /home/warpa/logs         # CPA 日志目录
+/home/warpa/static       # CPA management HTML 静态文件目录
 ```
 
 首次启动时，如果 `/home/warpa/config.yaml` 不存在，入口脚本会从 `/CLIProxyAPI/config.example.yaml` 复制一份默认配置，并只调整以下必要项：
