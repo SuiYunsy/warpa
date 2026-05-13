@@ -64,7 +64,7 @@ else
     log "Using existing CLIProxyAPI config at ${CPA_CONFIG}"
 fi
 
-log "Starting userspace WARP proxy on NET_PORT=${NET_PORT:-9091}..."
+log "Starting userspace WARP mixed proxy on NET_PORT=${NET_PORT:-9091}..."
 /run/entrypoint.sh rws-cli-v5 &
 WARP_PID="$!"
 
@@ -72,7 +72,7 @@ log "Waiting ${WARP_START_DELAY}s for WARP startup..."
 sleep "$WARP_START_DELAY"
 
 log "Starting CLIProxyAPI with config ${CPA_CONFIG}..."
-# CLIProxyAPI resolves relative paths from the working directory; keep it in WARPA_HOME.
+# CLIProxyAPI resolves relative paths from the working directory; entrypoint-warpa keeps it in WARPA_HOME even though the default WORKDIR is /CLIProxyAPI.
 cd "$WARPA_HOME"
 /CLIProxyAPI/CLIProxyAPI -config "$CPA_CONFIG" &
 CPA_PID="$!"
