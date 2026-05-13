@@ -6,6 +6,7 @@ on:
     branches:
       - main
   schedule:
+    # Daily rebuild at 03:20 UTC (11:20 UTC+8)
     - cron: "20 3 * * *"
 
 permissions:

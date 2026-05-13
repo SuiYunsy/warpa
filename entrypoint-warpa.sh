@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+# Alternate entrypoint for /home/warpa layout; Dockerfile defaults to entrypoint-cpa-warp.sh.
 WARPA_HOME="/home/warpa"
 CPA_CONFIG="${WARPA_HOME}/config.yaml"
 WARP_START_DELAY="${WARP_START_DELAY:-8}"
@@ -49,7 +50,7 @@ trap terminate INT TERM
 mkdir -p "${WARPA_HOME}/auths" "${WARPA_HOME}/logs" /CLIProxyAPI
 
 # CLIProxyAPI cloud mode may resolve its log directory to /home/logs.
-# Keep that path pointing at the warpa log directory on fresh deployments.
+# Map /home/logs to WARPA_HOME/logs for this alternate /home/warpa layout.
 if [ ! -e /home/logs ]; then
     ln -s "${WARPA_HOME}/logs" /home/logs 2>/dev/null || true
 fi
@@ -72,7 +73,7 @@ log "Waiting ${WARP_START_DELAY}s for WARP startup..."
 sleep "$WARP_START_DELAY"
 
 log "Starting CLIProxyAPI with config ${CPA_CONFIG}..."
-# CLIProxyAPI resolves relative paths from the working directory; entrypoint-warpa keeps it in WARPA_HOME even though the default WORKDIR is /CLIProxyAPI.
+# CLIProxyAPI resolves relative paths from the working directory; this entrypoint uses WARPA_HOME.
 cd "$WARPA_HOME"
 /CLIProxyAPI/CLIProxyAPI -config "$CPA_CONFIG" &
 CPA_PID="$!"
