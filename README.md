@@ -36,7 +36,7 @@ logging-to-file: true
 proxy-url: "http://127.0.0.1:9091"
 ```
 
-`host: "0.0.0.0"` binds CLIProxyAPI to all container interfaces so the published port works; only publish `8317` as described in the Ports and security model section.
+`host: "0.0.0.0"` binds CLIProxyAPI to all container interfaces so the container port can be published and accessed externally; only publish `8317` as described in the Ports and security model section.
 
 If `/home/config.yaml` already exists, it is used as-is and is not overwritten.
 
