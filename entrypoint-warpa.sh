@@ -46,13 +46,8 @@ terminate() {
 
 trap terminate INT TERM
 
-mkdir -p "${WARPA_HOME}/auths" "${WARPA_HOME}/logs" /CLIProxyAPI
-
-# CLIProxyAPI cloud mode may resolve its log directory to /home/logs.
-# Keep that path pointing at the warpa log directory on fresh deployments.
-if [ ! -e /home/logs ]; then
-    ln -s "${WARPA_HOME}/logs" /home/logs 2>/dev/null || true
-fi
+mkdir -p "${WARPA_HOME}/auths" "${WARPA_HOME}/logs" "${WARPA_HOME}/static" /CLIProxyAPI
+export MANAGEMENT_STATIC_PATH="${WARPA_HOME}/static"
 
 if [ ! -f "$CPA_CONFIG" ]; then
     log "Creating default CLIProxyAPI config at ${CPA_CONFIG}"
