@@ -72,6 +72,7 @@ log "Waiting ${WARP_START_DELAY}s for WARP startup..."
 sleep "$WARP_START_DELAY"
 
 log "Starting CLIProxyAPI with config ${CPA_CONFIG}..."
+# CLIProxyAPI resolves relative paths from the working directory; keep it in WARPA_HOME.
 cd "$WARPA_HOME"
 /CLIProxyAPI/CLIProxyAPI -config "$CPA_CONFIG" &
 CPA_PID="$!"
