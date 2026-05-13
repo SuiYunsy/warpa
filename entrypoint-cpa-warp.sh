@@ -51,6 +51,7 @@ mkdir -p /home/auths /home/logs /CLIProxyAPI
 if [ ! -f "$CPA_CONFIG" ]; then
     log "Creating default CLIProxyAPI config at ${CPA_CONFIG}"
     cp /CLIProxyAPI/config.example.yaml "$CPA_CONFIG"
+    # Bind on all interfaces so the published container port works; restrict exposure via port publishing.
     set_yaml_key "host" '"0.0.0.0"' "$CPA_CONFIG"
     set_yaml_key "port" "8317" "$CPA_CONFIG"
     set_yaml_key "auth-dir" '"/home/auths"' "$CPA_CONFIG"
