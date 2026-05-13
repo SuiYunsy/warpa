@@ -1,140 +1,117 @@
 # warpa
 
-`warpa` 是一个面向 Azure App Service 单容器部署的 Docker 镜像：**以用户态 Cloudflare WARP 为基础，以 CLIProxyAPI（CPA）为主服务**。
+`warpa` packages **CLIProxyAPI + userspace Cloudflare WARP mixed proxy** into a single Docker image for platforms such as Azure App Service that expect a single HTTP entrypoint.
 
-它在同一个容器内启动：
+The container starts a userspace WARP mixed proxy internally on `127.0.0.1:9091`, then starts CLIProxyAPI on port `8317`. CLIProxyAPI is configured to use the internal WARP proxy as its outbound proxy.
 
-1. 用户态 WARP mixed proxy：仅监听容器内部 `127.0.0.1:9091` / `NET_PORT=9091`。
-2. CLIProxyAPI：作为公网入口服务，监听 App Service 暴露的 `8317`。
-
-最终镜像地址：
+Published image:
 
 ```text
 ghcr.io/suiyunsy/warpa:latest
 ```
 
-## 适用场景
+## Ports and security model
 
-Azure App Service 后续不再适合依赖 Docker Compose 多服务部署时，可以直接使用这个单镜像部署 CPA，并让需要走 WARP 的 CPA 渠道单独使用容器内的 WARP 代理。
+Only port `8317` is exposed by the image and should be published in production. Port `9091` is the internal WARP mixed proxy port for CLIProxyAPI only; do **not** expose `9091` publicly.
 
-这个镜像不是“公开 WARP 代理服务”，而是“CPA 内部按需走 WARP”。生产环境只应开放 CPA 的 `8317` 端口，不要开放 `9091`。
+This image uses `ghcr.io/mon-ius/docker-warp-socks:v5` and does not require `privileged`, `NET_ADMIN`, `SYS_MODULE`, `/dev/net/tun`, or custom `sysctls`.
 
-## Azure App Service 必填设置
+## Persistent paths
 
-在 Azure App Service 中使用单 Docker 镜像：
+The image is designed for Azure App Service storage and uses `/home` for persistent data:
+
+```text
+/home/config.yaml  # CLIProxyAPI config
+/home/auths        # CLIProxyAPI auth directory
+/home/logs         # CLIProxyAPI logs
+```
+
+If `/home/config.yaml` does not exist at startup, the entrypoint copies `/CLIProxyAPI/config.example.yaml` and sets these values:
+
+```yaml
+host: ""
+port: 8317
+auth-dir: "/home/auths"
+logging-to-file: true
+proxy-url: "http://127.0.0.1:9091"
+```
+
+If `/home/config.yaml` already exists, it is used as-is and is not overwritten.
+
+## Local run
+
+```bash
+docker run --rm -it \
+  -p 8317:8317 \
+  -v "$PWD/config.yaml:/home/config.yaml" \
+  -v "$PWD/auths:/home/auths" \
+  -v "$PWD/logs:/home/logs" \
+  ghcr.io/suiyunsy/warpa:latest
+```
+
+If you want the container to generate the initial config for you, create the directories and omit the config bind mount for the first run:
+
+```bash
+mkdir -p auths logs
+docker run --rm -it \
+  -p 8317:8317 \
+  -v "$PWD/auths:/home/auths" \
+  -v "$PWD/logs:/home/logs" \
+  ghcr.io/suiyunsy/warpa:latest
+```
+
+## Azure App Service
+
+Use the GHCR image:
 
 ```text
 ghcr.io/suiyunsy/warpa:latest
 ```
 
-应用设置至少需要：
+Recommended App Service environment variables:
 
 ```text
-MANAGEMENT_PASSWORD=请填写一个强密码
+WEBSITES_PORT=8317
+WEBSITES_ENABLE_APP_SERVICE_STORAGE=true
+CPA_CONFIG=/home/config.yaml
+CPA_PROXY_URL=http://127.0.0.1:9091
+NET_PORT=9091
+DEPLOY=cloud
+```
+
+For a single-container App Service deployment, the only required HTTP entry port is:
+
+```text
 WEBSITES_PORT=8317
 ```
 
-建议同时开启 App Service 持久化存储：
+Do not expose or route `9091` in production. The image is intended for “CPA internally goes through WARP”, not as a public WARP proxy service.
+
+## Testing WARP locally
+
+For a temporary local check only, you can publish or exec into an environment where `9091` is reachable and run:
+
+```bash
+curl -x "http://127.0.0.1:9091" https://www.cloudflare.com/cdn-cgi/trace
+```
+
+If WARP is active, the response includes:
 
 ```text
-WEBSITES_ENABLE_APP_SERVICE_STORAGE=true
+warp=on
 ```
 
-镜像内已经默认设置：
+Do not expose `9091` in production. If a future deployment needs WARP as a standalone HTTP/SOCKS proxy service, use a separate image/repository and add authentication plus IP allowlisting.
 
-```text
-TZ=Asia/Shanghai
-DEPLOY=cloud
-NET_PORT=9091
-WARP_START_DELAY=8
-```
+## GitHub Actions publishing
 
-## 持久化路径
+The workflow in `.github/workflows/build.yml` builds and publishes a multi-architecture image for `linux/amd64` and `linux/arm64` to GHCR when:
 
-全新部署时，容器会使用 `/home/warpa` 作为持久化目录：
+- code is pushed to `main`;
+- the workflow is manually run from the Actions tab;
+- the daily scheduled rebuild runs.
 
-```text
-/home/warpa/config.yaml  # CPA 配置文件
-/home/warpa/auths        # CPA auth 文件
-/home/warpa/logs         # CPA 日志文件
-```
-
-如果 `/home/warpa/config.yaml` 不存在，启动脚本会从 `/CLIProxyAPI/config.example.yaml` 生成一份，并只修改这些配置：
-
-```yaml
-auth-dir: "/home/warpa/auths"
-logging-to-file: true
-logs-max-total-size-mb: 10
-```
-
-启动脚本不会强制修改 `host`、`port`，也不会写入全局 `proxy-url`。
-
-## WARP 代理使用方式
-
-容器内 WARP mixed proxy 地址为：
-
-```text
-socks5://127.0.0.1:9091
-```
-
-优先建议使用 SOCKS5 代理。不要在 CPA 配置里设置全局代理；请进入 CPA 管理面板，在需要走 WARP 的单独渠道里设置代理：
-
-```text
-socks5://127.0.0.1:9091
-```
-
-这样可以避免所有渠道被强制走 WARP，也能更清楚地控制哪些渠道需要 WARP 出口。
-
-## 端口说明
-
-公网只暴露：
-
-```text
-8317
-```
-
-不要在生产环境暴露：
-
-```text
-9091
-```
-
-`9091` 只给同容器内的 CPA 访问。如果未来确实需要把 WARP 做成独立 HTTP/SOCKS 代理服务，应另开独立镜像/仓库，并且必须加认证和 IP 白名单。
-
-## 权限说明
-
-本镜像基于用户态 WARP 镜像：
-
-```text
-ghcr.io/mon-ius/docker-warp-socks:v5
-```
-
-不需要以下高权限或内核能力：
-
-```text
-privileged
-NET_ADMIN
-SYS_MODULE
-/dev/net/tun
-sysctls
-```
-
-## 自动构建
-
-GitHub Actions 会在以下情况构建并发布多架构镜像到 GHCR：
-
-- push 到 `main`；
-- 在 Actions 页面手动 `Run workflow`；
-- 每天北京时间 0 点自动重建一次。
-
-发布架构：
-
-```text
-linux/amd64
-linux/arm64
-```
-
-发布标签：
+Published tags include:
 
 ```text
 latest

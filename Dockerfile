@@ -9,18 +9,20 @@ FROM --platform=$TARGETPLATFORM ${WARP_IMAGE}
 COPY --from=cpa /CLIProxyAPI/CLIProxyAPI /CLIProxyAPI/CLIProxyAPI
 COPY --from=cpa /CLIProxyAPI/config.example.yaml /CLIProxyAPI/config.example.yaml
 
-COPY entrypoint-warpa.sh /entrypoint-warpa.sh
+COPY entrypoint-cpa-warp.sh /entrypoint-cpa-warp.sh
 
-RUN chmod +x /entrypoint-warpa.sh /CLIProxyAPI/CLIProxyAPI \
-    && mkdir -p /CLIProxyAPI /home/warpa/auths /home/warpa/logs
+RUN chmod +x /entrypoint-cpa-warp.sh /CLIProxyAPI/CLIProxyAPI \
+    && mkdir -p /CLIProxyAPI /home/auths /home/logs
 
-WORKDIR /home/warpa
+WORKDIR /CLIProxyAPI
 
 EXPOSE 8317
 
 ENV TZ=Asia/Shanghai
 ENV DEPLOY=cloud
+ENV CPA_CONFIG=/home/config.yaml
+ENV CPA_PROXY_URL=http://127.0.0.1:9091
 ENV NET_PORT=9091
 ENV WARP_START_DELAY=8
 
-ENTRYPOINT ["/entrypoint-warpa.sh"]
+ENTRYPOINT ["/entrypoint-cpa-warp.sh"]
