@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: "0 16 * * *"
 
+concurrency:
+  group: warpa-image-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
@@ -59,6 +63,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            WARP_IMAGE=ghcr.io/mon-ius/docker-warp-socks:v5
             CPA_IMAGE=eceasy/cli-proxy-api:latest
+            SING_BOX_VERSION=1.13.13
+            SING_BOX_SHA256_AMD64=a74001a9304c1722fdcd01a5145526a22ff35b0da9cd73a4887e910c1ce9b480
+            SING_BOX_SHA256_ARM64=e58c2c6c44d9714d72c9230d81698df366fa2b4ecd6e5a551a4b77ec85b629f9
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,6 +1,10 @@
 # warpa
 
-`warpa` 是一个面向 Azure App Service 单容器部署的 Docker 镜像：底层以 userspace Cloudflare WARP 代理为基础，主要服务是 CLIProxyAPI（下文简称 CPA）。容器内部启动 WARP 代理后，再启动 CPA Web 管理与 API 服务。
+`warpa` 是面向 Azure App Service 单容器部署的镜像，在一个非特权容器中同时运行：
+
+- CLIProxyAPI（CPA），对外提供管理页面和 API；
+- sing-box 用户态 Cloudflare WARP，只在容器内部提供 SOCKS5 代理；
+- CPA 原生动态库插件。
 
 发布镜像：
 
@@ -8,28 +12,51 @@
 ghcr.io/suiyunsy/warpa:latest
 ```
 
-## 工作方式
+## 架构
 
-- CPA 对外提供 HTTP 服务，监听容器端口 `8317`。
-- WARP 只在容器内部作为出站代理使用，默认端口为 `127.0.0.1:9091`。
-- 不建议把 `9091` 暴露到公网；生产环境只需要让 Azure App Service 路由 `8317`。
-- warpa 是“以 WARP 为基、以 CPA 为主”的部署方式：日常配置、渠道、鉴权和管理都应在 CPA 管理面板中完成。
-- 优先建议在 CPA 的单独渠道里配置 SOCKS5 代理：`socks5://127.0.0.1:9091`。不建议在容器启动脚本中全局强制设置 HTTP/SOCKS 代理。
+最终运行层直接使用 CPA 官方 `eceasy/cli-proxy-api:latest` 镜像，因此 CPA 和插件共享 Debian/glibc 运行环境。sing-box 固定为经过 SHA256 校验的 glibc 版本，不继承 Alpine/musl，也不需要 `gcompat`、TUN、`NET_ADMIN` 或特权容器。
+
+CPA 对外监听 `8317`。WARP 的 mixed/SOCKS 入站只监听：
+
+```text
+127.0.0.1:9091
+```
+
+在需要通过 WARP 出站的 CPA 渠道或认证项中配置：
+
+```text
+socks5h://127.0.0.1:9091
+```
+
+不要把 `9091` 暴露到公网，也不建议通过环境变量强制 CPA 全局走 WARP。
+
+CPA 是容器主服务。WARP 异常退出时，入口脚本会保留 CPA 并以指数退避方式单独重启 WARP；只有 CPA 自身退出时容器才会退出。这可以避免临时 WARP 故障触发 Azure 502 和容器重启循环。
 
 ## 持久化路径
 
-镜像按 Azure App Service 的持久化目录 `/home` 设计，warpa 自身数据统一放在 `/home/warpa`。`/CLIProxyAPI` 是镜像内置的 CPA 程序目录，只用于存放可执行文件和示例配置，不应作为持久化目录使用。
-
-warpa 只使用以下持久化路径：
+所有运行数据都位于 Azure App Service 可持久化的 `/home` 下：
 
 ```text
-/home/warpa/config.yaml  # CPA 配置文件
-/home/warpa/auths        # CPA auth 文件目录
-/home/warpa/logs         # CPA 日志目录
-/home/warpa/static       # CPA management HTML 静态文件目录
+/home/warpa/config.yaml              # CPA 配置
+/home/warpa/auths                    # CPA 认证文件
+/home/warpa/data                     # CPA/插件数据
+/home/warpa/logs                     # CPA 日志
+/home/warpa/plugins                  # CPA 动态库插件
+/home/warpa/static                   # Management Center 静态文件
+/home/warpa/warp/credentials.json    # WARP 身份和私钥
+/home/warpa/warp/config.json         # 生成的 sing-box 配置
+/home/warpa/warp/cache.db            # sing-box DNS 缓存
 ```
 
-首次启动时，如果 `/home/warpa/config.yaml` 不存在，入口脚本会从 `/CLIProxyAPI/config.example.yaml` 复制一份默认配置，并只调整以下必要项：
+首次启动会注册一个 WARP 身份并以 `0600` 权限保存，后续容器重启直接复用，不会每次重新注册。如确实需要更换身份，可临时设置：
+
+```text
+WARP_RESET_CREDENTIALS=1
+```
+
+成功生成新身份后应立即删除该设置，否则每次启动都会重置。
+
+首次启动时，如果 `/home/warpa/config.yaml` 不存在，镜像会复制 CPA 官方示例配置，并设置：
 
 ```yaml
 auth-dir: "/home/warpa/auths"
@@ -37,65 +64,97 @@ logging-to-file: true
 logs-max-total-size-mb: 10
 ```
 
-`host`、`port` 等默认值保持 CPA 官方 `config.example.yaml` 的内容；入口脚本不会写入 `proxy-url`，也不会强制 CPA 全局走 WARP。
+CPA 默认插件目录 `plugins` 相对于工作目录 `/home/warpa`，因此管理中心安装的插件会持久化到 `/home/warpa/plugins`。
+
+CAP Token Usage Tracker 建议配置：
+
+```yaml
+plugins:
+  enabled: true
+  dir: "/home/warpa/plugins"
+  configs:
+    cap-token-usage-tracker:
+      enabled: true
+      priority: 0
+      data_path: "/home/warpa/data/token-usage-tracker.db"
+      retention_days: 30
+      flush_interval: 5s
+      flush_max_records: 100
+      sync_on_record: true
+```
 
 ## Azure App Service 配置
 
-在 Azure App Service 创建 Linux Web App，并选择自定义容器镜像：
+使用 Linux 自定义容器，并设置镜像：
 
 ```text
 ghcr.io/suiyunsy/warpa:latest
 ```
 
-应用设置（Environment variables）至少需要配置：
+应用设置至少包括：
 
 ```text
-MANAGEMENT_PASSWORD=<你的CPA管理密码>
+MANAGEMENT_PASSWORD=<CPA管理密码>
 WEBSITES_PORT=8317
-```
-
-建议同时启用 App Service 持久化存储：
-
-```text
 WEBSITES_ENABLE_APP_SERVICE_STORAGE=true
+WEBSITES_CONTAINER_START_TIME_LIMIT=1800
 ```
 
-镜像内已保留以下默认环境变量，一般不需要在 Azure 中重复设置：
+镜像自带的默认环境变量：
 
 ```text
 TZ=Asia/Shanghai
 DEPLOY=cloud
 NET_PORT=9091
-WARP_START_DELAY=8
+WARP_RESTART_DELAY=10
+WARP_RESTART_MAX_DELAY=300
 ```
 
-部署完成后，进入 CPA 管理面板，在需要通过 WARP 出站的单独渠道里设置代理地址：
+`WARP_SERVER` 和 `WARP_PORT` 可覆盖 Cloudflare endpoint，通常不需要修改。
 
-```text
-socks5://127.0.0.1:9091
+## 更新策略
+
+- CPA 基础镜像保持 `eceasy/cli-proxy-api:latest`；
+- GitHub Actions 在推送、手动触发以及每天北京时间 00:00 自动重建；
+- sing-box 固定为 `v1.13.13` 并校验 amd64/arm64 SHA256；
+- 发布 `latest`、`sha-<commit>` 和 UTC 时间戳标签。
+
+Azure 使用 `latest` 可以在重新拉取镜像时获得最新 CPA。需要严格回滚时，可临时切换到 `sha-<commit>` 或时间戳标签。
+
+## 本地验证
+
+构建：
+
+```sh
+docker build -t warpa:test .
 ```
 
-这样可以让指定渠道走 WARP，同时避免把所有 CPA 流量在启动阶段强制改为同一个代理。
+运行并持久化 `/home`：
 
-## 端口与安全
+```sh
+docker run --rm \
+  -p 8317:8317 \
+  -e MANAGEMENT_PASSWORD=change-me \
+  -v warpa-home:/home \
+  warpa:test
+```
 
-- 对公网只暴露 `8317`。
-- 不要公开、映射或反向代理 `9091`。
-- `9091` 是容器内部 WARP 代理端口，供 CPA 渠道按需使用。
-- 必须设置 `MANAGEMENT_PASSWORD`，避免 CPA 管理面板无密码暴露。
+检查 CPA：
 
-## GitHub Actions 构建发布
+```sh
+curl -fsS http://127.0.0.1:8317/
+```
 
-`.github/workflows/build.yml` 会构建并发布 `linux/amd64`、`linux/arm64` 多架构镜像到 GHCR。触发方式包括：
+检查容器内 WARP：
 
-- 推送到 `main`；
-- 在 GitHub Actions 页面手动触发；
-- 每日定时构建：北京时间 00:00（UTC 16:00）。
+```sh
+docker exec <container> \
+  curl --proxy socks5h://127.0.0.1:9091 \
+  -fsSL https://www.cloudflare.com/cdn-cgi/trace
+```
 
-发布标签包括：
+输出中应包含：
 
 ```text
-latest
-sha-<commit>
-YYYYMMDD-HHmm
+warp=on
 ```
