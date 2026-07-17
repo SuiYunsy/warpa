@@ -108,18 +108,22 @@ DEPLOY=cloud
 NET_PORT=9091
 WARP_RESTART_DELAY=10
 WARP_RESTART_MAX_DELAY=300
+WARP_RESTART_STABLE_TIME=60
 ```
 
 `WARP_SERVER` 和 `WARP_PORT` 可覆盖 Cloudflare endpoint，通常不需要修改。
 
+WARP 重启退避期间入口脚本仍会每两秒检查 CPA；CPA 退出后容器会及时退出。WARP 连续稳定运行 `WARP_RESTART_STABLE_TIME` 秒后，退避时间会恢复为初始值。
+
 ## 更新策略
 
-- CPA 基础镜像保持 `eceasy/cli-proxy-api:latest`；
-- GitHub Actions 在推送、手动触发以及每天北京时间 00:00 自动重建；
+- 推送和手动触发始终构建；每天北京时间 00:00 检查一次 CPA；
+- 定时检查只有在 CPA 镜像 digest 或 warpa 提交变化时才构建，否则直接跳过；
+- 构建开始时解析 `eceasy/cli-proxy-api:latest` 对应的 CPA 版本和 digest，并按 digest 固定本次构建，避免构建过程中上游标签漂移；
 - sing-box 固定为 `v1.13.13` 并校验 amd64/arm64 SHA256；
-- 发布 `latest`、`sha-<commit>` 和 UTC 时间戳标签。
+- 发布 `latest`、`cpa-v<CPA版本>`、`sha-<commit>`、组合状态标签、Action run 标签和 UTC 时间戳标签。
 
-Azure 使用 `latest` 可以在重新拉取镜像时获得最新 CPA。需要严格回滚时，可临时切换到 `sha-<commit>` 或时间戳标签。
+例如 CPA `v7.2.83` 会生成 `cpa-v7.2.83`；组合标签形如 `sha-b17c45e-cpa-v7.2.83-2d402a3edfbf`。Azure 使用 `latest` 可以在重新拉取镜像时获得最新 CPA。需要严格回滚时，优先使用不会重复的 `run-<Action run ID>` 标签。
 
 ## 本地验证
 

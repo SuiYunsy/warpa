@@ -28,28 +28,95 @@ jobs:
         id: meta
         shell: bash
         run: |
+          set -euo pipefail
+
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           timestamp="$(date -u +'%Y%m%d-%H%M')"
           short_sha="${GITHUB_SHA::7}"
+          cpa_repository="eceasy/cli-proxy-api"
+
+          latest_json="$(curl --fail --silent --show-error --location --retry 5 \
+            "https://hub.docker.com/v2/repositories/${cpa_repository}/tags/latest")"
+          cpa_digest="$(jq -r '.digest // empty' <<<"${latest_json}")"
+          if [[ -z "${cpa_digest}" ]]; then
+            echo "Unable to resolve ${cpa_repository}:latest digest." >&2
+            exit 1
+          fi
+
+          tags_json="$(curl --fail --silent --show-error --location --retry 5 \
+            "https://hub.docker.com/v2/repositories/${cpa_repository}/tags?page_size=100&ordering=last_updated")"
+          cpa_version="$(jq -r --arg digest "${cpa_digest}" '
+            [.results[]
+              | select(.digest == $digest)
+              | select(.name != "latest")
+              | select(.name | test("^v[0-9]"))
+              | .name][0] // empty
+          ' <<<"${tags_json}")"
+          if [[ -z "${cpa_version}" ]]; then
+            echo "Unable to match ${cpa_repository}:latest to a version tag." >&2
+            exit 1
+          fi
+
+          cpa_digest_short="${cpa_digest#sha256:}"
+          cpa_digest_short="${cpa_digest_short:0:12}"
+          state_tag="sha-${short_sha}-cpa-${cpa_version}-${cpa_digest_short}"
+          should_build=true
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            ghcr_token="$(curl --fail --silent --show-error --location --retry 5 \
+              "https://ghcr.io/token?service=ghcr.io&scope=repository:${GITHUB_REPOSITORY,,}:pull" \
+              | jq -r '.token // .access_token // empty')"
+            if [[ -z "${ghcr_token}" ]]; then
+              echo "Unable to obtain a GHCR pull token." >&2
+              exit 1
+            fi
+
+            manifest_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --header "Authorization: Bearer ${ghcr_token}" \
+              --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              "https://ghcr.io/v2/${GITHUB_REPOSITORY,,}/manifests/${state_tag}")"
+            case "${manifest_status}" in
+              200)
+                should_build=false
+                echo "${image}:${state_tag} already exists; CPA and warpa are unchanged."
+                ;;
+              404)
+                ;;
+              *)
+                echo "Unexpected GHCR manifest status: ${manifest_status}" >&2
+                exit 1
+                ;;
+            esac
+          fi
 
           {
             echo "image=${image}"
             echo "timestamp=${timestamp}"
             echo "short_sha=${short_sha}"
+            echo "cpa_version=${cpa_version}"
+            echo "cpa_digest=${cpa_digest}"
+            echo "state_tag=${state_tag}"
+            echo "should_build=${should_build}"
             echo "tags<<EOF"
             echo "${image}:latest"
+            echo "${image}:cpa-${cpa_version}"
             echo "${image}:sha-${short_sha}"
+            echo "${image}:${state_tag}"
+            echo "${image}:run-${GITHUB_RUN_ID}"
             echo "${image}:${timestamp}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
+        if: steps.meta.outputs.should_build == 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        if: steps.meta.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: steps.meta.outputs.should_build == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -57,16 +124,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        if: steps.meta.outputs.should_build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            CPA_IMAGE=eceasy/cli-proxy-api:latest
+            CPA_IMAGE=eceasy/cli-proxy-api@${{ steps.meta.outputs.cpa_digest }}
             SING_BOX_VERSION=1.13.13
             SING_BOX_SHA256_AMD64=a74001a9304c1722fdcd01a5145526a22ff35b0da9cd73a4887e910c1ce9b480
             SING_BOX_SHA256_ARM64=e58c2c6c44d9714d72c9230d81698df366fa2b4ecd6e5a551a4b77ec85b629f9
+          labels: |
+            org.opencontainers.image.version=cpa-${{ steps.meta.outputs.cpa_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            io.suiyunsy.warpa.cpa.version=${{ steps.meta.outputs.cpa_version }}
+            io.suiyunsy.warpa.cpa.digest=${{ steps.meta.outputs.cpa_digest }}
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

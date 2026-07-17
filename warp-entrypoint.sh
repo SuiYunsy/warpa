@@ -32,10 +32,10 @@ register_warp() {
         return 1
     fi
 
-    client_id="$(jq -r '[.. | objects | .client_id? // empty][0] // empty' "$response_file")"
-    peer_public_key="$(jq -r '[.. | objects | .public_key? // empty][0] // empty' "$response_file")"
-    address_v4="$(jq -r '[.. | objects | .v4? // empty][-1] // empty' "$response_file")"
-    address_v6="$(jq -r '[.. | objects | .v6? // empty][-1] // empty' "$response_file")"
+    client_id="$(jq -r '.config.client_id // .client_id // .client // empty' "$response_file")"
+    peer_public_key="$(jq -r '.config.peers[0].public_key // .public_key // .key // empty' "$response_file")"
+    address_v4="$(jq -r '.config.interface.addresses.v4 // .interface.addresses.v4 // .addresses.v4 // .v4 // empty' "$response_file")"
+    address_v6="$(jq -r '.config.interface.addresses.v6 // .interface.addresses.v6 // .addresses.v6 // .v6 // empty' "$response_file")"
 
     if [ -z "$client_id" ] || [ -z "$peer_public_key" ] || [ -z "$address_v4" ] || [ -z "$address_v6" ]; then
         log "Cloudflare registration response is missing required fields."

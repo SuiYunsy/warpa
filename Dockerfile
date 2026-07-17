@@ -47,6 +47,7 @@ ENV TZ=Asia/Shanghai \
     DEPLOY=cloud \
     NET_PORT=9091 \
     WARP_RESTART_DELAY=10 \
-    WARP_RESTART_MAX_DELAY=300
+    WARP_RESTART_MAX_DELAY=300 \
+    WARP_RESTART_STABLE_TIME=60
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint-warpa"]
